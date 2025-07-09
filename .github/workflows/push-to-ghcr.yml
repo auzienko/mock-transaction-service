@@ -37,7 +37,7 @@ jobs:
       - name: Build and push ${{ env.SERVICE_NAME }}
         uses: docker/build-push-action@v4
         with:
-          context: ./${{ env.SERVICE_NAME }}
+          context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ github.actor }}/${{ env.SERVICE_NAME }}:latest
           platforms: linux/amd64,linux/arm64
