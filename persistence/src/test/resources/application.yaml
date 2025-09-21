@@ -1,0 +1,6 @@
+service:
+  retry:
+    concurrency-exception:
+      max-attempts: 3
+      initial-delay-ms: 100
+      delay-multiplier: 2.0

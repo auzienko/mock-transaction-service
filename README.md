@@ -1,105 +1,108 @@
-# Transaction Service (Mock)
+# Микросервис "Transaction Service" (дипломный проект)
 
-This project is a mock `transaction-service`, created to serve as a monitoring target for the **Observability Core** system. It simulates a microservice responsible for handling financial transactions, providing a key endpoint for health and performance checks.
+**Тема дипломной работы:** Разработка программного комплекса для мониторинга и анализа производительности распределенной информационной системы предприятия.
 
-This service is part of a larger collection of mock services found in the [mock-services-sample](https://github.com/your-username/mock-services-sample) repository.
+Данный репозиторий содержит исходный код микросервиса `transaction-service`, который является ключевым компонентом демонстрационной распределенной системы. Сервис разработан в соответствии с современными инженерными практиками для создания надежных, масштабируемых и отказоустойчивых корпоративных приложений.
 
-## Table of Contents
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Prerequisites](#prerequisites)
-- [Running the Service](#running-the-service)
-    - [Using Docker (Recommended)](#using-docker-recommended)
-    - [Locally with Maven](#locally-with-maven)
-- [API Endpoints](#api-endpoints)
-- [CI/CD Pipeline](#cicd-pipeline)
+В рамках дипломного проекта данный сервис выступает в роли **объекта мониторинга** для основного программного комплекса.
 
-## Features
+**Связанные компоненты проекта:**
+*   **Основной проект:** [observability-core-project](https://github.com/your-username/observability-core-project) (система мониторинга и анализа производительности)
+*   **Frontend-приложение:** [frontend-repo](https://github.com/your-username/frontend-repo) (пользовательский интерфейс системы мониторинга)
+*   **Инфраструктура:** [deployment-repo](https://github.com/your-username/deployment-repo) (конфигурация развертывания, включая Docker Compose и API Gateway)
 
-*   Exposes a standard Spring Boot Actuator health endpoint at `/actuator/health`.
-*   Includes a simulated processing delay to make performance monitoring more realistic and meaningful.
-*   Containerized with Docker for consistent and isolated deployments.
-*   Automated build and publishing pipeline to GitHub Container Registry (GHCR).
+---
 
-## Tech Stack
+## 1. Архитектура
 
-*   **Language:** Java 21
-*   **Framework:** Spring Boot 3.x
-*   **Build Tool:** Apache Maven
-*   **Containerization:** Docker
+### 1.1. Архитектура микросервиса (многомодульный проект)
 
-## Prerequisites
+Сервис спроектирован с использованием многомодульной архитектуры для строгого соблюдения принципа разделения ответственности (Separation of Concerns) и обеспечения слабой связанности между логическими слоями.
 
-*   Java 21 JDK
-*   Apache Maven 3.9+
-*   Docker Desktop
-
-## Running the Service
-
-The service can be run via Docker or directly with Maven. Docker is the recommended method for consistency.
-
-### Using Docker (Recommended)
-
-1.  **Build the Docker image:**
-    From the root of the `transaction-service` directory, run:
-    ```bash
-    docker build -t transaction-service .
-    ```
-
-2.  **Run the Docker container:**
-    This service is typically mapped to port `9002`.
-    ```bash
-    docker run -p 9002:8080 transaction-service
-    ```
-    *The service will be accessible on your local machine at `http://localhost:9002`.*
-
-Alternatively, you can pull the latest pre-built image from GitHub Container Registry:
-```bash
-docker pull ghcr.io/your-username/transaction-service:latest
-docker run -p 9002:8080 ghcr.io/your-username/transaction-service:latest
 ```
-*(Remember to replace `your-username` with your actual GitHub username)*
++----------------+      +----------------+
+|  persistence   |      |      api       |  (Слой реализации)
++----------------+      +----------------+
+         |                     |
+         +--------+------------+
+                  |
+                  v
+            +----------------+
+            |     domain     |              (Слой бизнес-логики)
+            +----------------+
+                  |
+                  v
+            +----------------+
+            |   public-api   |              (Слой публичных контрактов)
+            +----------------+
+```
 
-### Locally with Maven
+*   **`public-api`:** Легковесный JAR-артефакт, содержащий только DTO (Data Transfer Objects) и `enum`. Определяет публичный, переиспользуемый контракт сервиса.
+*   **`domain`:** "Чистая" бизнес-логика и модели предметной области. Этот модуль не зависит от фреймворков и деталей реализации (веб, БД).
+*   **`persistence`:** Реализация слоя доступа к данным с использованием Spring Data JPA.
+*   **`api`:** Реализация REST-контроллеров (публичных и внутренних).
+*   **`app`:** Исполняемый модуль, который агрегирует все остальные модули и содержит основную конфигурацию приложения.
+*   **`transaction-service-spring-boot-starter`:** (Опционально) Spring Boot стартер с преднастроенным Feign-клиентом для упрощения межсервисного взаимодействия.
 
-You can also run the application directly from the source code.
+### 1.2. Архитектура развертывания
 
-1.  **Navigate to the project directory:**
-    ```bash
-    cd /path/to/mock-services-sample/transaction-service
-    ```
+Система разворачивается как набор Docker-контейнеров под управлением Docker Compose. Внешний доступ к микросервисам, включая этот, осуществляется исключительно через API Gateway (Kong), который обеспечивает централизованное управление безопасностью и маршрутизацией.
 
-2.  **Run the application:**
-    ```bash
-    mvn spring-boot:run
-    ```
-    *The service will be accessible on your local machine at `http://localhost:8080`.*
+---
 
+## 2. Ключевые технические решения и реализованные паттерны
 
-## API Endpoints
+В данном проекте продемонстрированы следующие современные инженерные подходы:
 
-The primary endpoint used for monitoring is:
+*   **Надежность и отказоустойчивость:**
+    *   **Идемпотентность:** `POST`-запросы защищены от дубликатов с помощью заголовка `Idempotency-Key` и атомарной логики на уровне фильтра и базы данных.
+    *   **Оптимистичные блокировки:** Использование `@Version` для предотвращения конфликтов при одновременном обновлении данных (паттерн "Lost Updates").
+    *   **Механизм повторных попыток (Retry):** Автоматические ретраи с экспоненциальной выдержкой (Exponential Backoff) для обработки `OptimisticLockingFailureException` с помощью Spring Retry.
+*   **Архитектура и дизайн:**
+    *   **Многомодульный проект Maven:** Для изоляции слоев и обеспечения переиспользуемости кода.
+    *   **Сегрегация API:** Разделение API на публичный (`/api`) и внутренний (`/internal/api`) с различными правилами авторизации.
+    *   **Событийная модель статусов:** Статусы транзакций хранятся как неизменяемая история событий (паттерн Event Sourcing), что обеспечивает полный аудиторский след.
+*   **Инфраструктура и DevOps:**
+    *   **Контейнеризация:** Приложение поставляется в виде Docker-образа.
+    *   **Управление схемой БД:** Миграции базы данных управляются с помощью инструмента Flyway.
+    *   **CI/CD:** Настроен конвейер на базе GitHub Actions для автоматической сборки, тестирования и публикации мульти-архитектурных Docker-образов в GitHub Container Registry.
+    *   **API Gateway:** Продемонстрирована готовность к интеграции с Kong для централизованного управления доступом.
+*   **Наблюдаемость (Observability):**
+    *   **Структурированное логирование:** Логи генерируются в формате JSON с помощью `logstash-logback-encoder` для упрощения их сбора и анализа.
+    *   **Распределенная трассировка:** Интеграция с Micrometer Tracing для автоматической генерации `traceId` и `spanId`, что обеспечивает готовность к подключению к системам мониторинга, таким как Zipkin или Jaeger.
+*   **Комплексное тестирование:**
+    *   Проект покрыт различными видами тестов: юнит-тестами (Mockito), интеграционными тестами для слоя персистентности (Testcontainers с PostgreSQL) и API-тестами для веб-слоя (`MockMvc`).
 
-*   **Health Check**
-    *   **URL:** `/actuator/health`
-    *   **Method:** `GET`
-    *   **Success Response (200 OK):**
-        ```json
-        {
-          "status": "UP"
-        }
-        ```
-*   **Simulated Transaction Processing**
-    *   **URL:** `/transactions`
-    *   **Method:** `POST`
-    *   **Behavior:** This endpoint can be used to simulate work. It includes an artificial delay to test the performance monitoring capabilities of the main observability system.
+---
 
-## CI/CD Pipeline
+## 3. Сборка и запуск
 
-This project is configured with a GitHub Actions workflow located at `.github/workflows/publish-to-ghcr.yml` within the root of the `mock-services-sample` repository.
+### 3.1. Требования к окружению
 
-The pipeline automates the following process on every push to the `main` branch:
-1.  **Builds** the Java application using Maven.
-2.  **Tests** the application.
-3.  **Builds** a new Docker image.
-4.  **Publishes** the image to GitHub Container Registry (GHCR) with the `latest` tag.
+*   Git
+*   JDK 21+
+*   Apache Maven 3.8+
+*   Docker и Docker Compose
+
+### 3.2. Сборка проекта
+
+Для сборки всех модулей, запуска тестов и создания Docker-образа выполните следующую команду в корневой директории проекта:
+
+```bash
+mvn clean install
+```
+
+Эта команда также установит артефакты public-api и starter в ваш локальный Maven-репозиторий.
+
+### 3.3. Запуск сервиса
+Данный сервис не предназначен для автономного запуска. Он должен быть запущен как часть общей системы, описанной в файле docker-compose.yml основного проекта развертывания.
+Для локальной разработки или изолированного тестирования можно запустить приложение из IDE, используя класс TransactionServiceApplication в модуле app. Для этого потребуется запущенный экземпляр PostgreSQL и корректная настройка подключения в файле app/src/main/resources/application.yml.
+
+## 4. Документация API
+API сервиса задокументировано с использованием спецификации OpenAPI 3. После запуска приложения, интерактивная документация Swagger UI доступна по адресу:
+   
+http://<хост>:<порт>/swagger-ui.html
+
+Спецификация OpenAPI в формате JSON доступна по адресу:
+
+http://<хост>:<порт>/v3/api-docs

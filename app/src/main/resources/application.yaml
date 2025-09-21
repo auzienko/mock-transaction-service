@@ -1,0 +1,107 @@
+# ===================================================================
+# SERVER CONFIGURATION
+# ===================================================================
+server:
+  port: 8080
+  shutdown: graceful
+  tomcat:
+    connection-timeout: 2s
+    keep-alive-timeout: 15s
+    threads:
+      max: 50
+      min-spare: 5
+
+# ===================================================================
+# SPRING BOOT GENERAL CONFIGURATION
+# ===================================================================
+spring:
+  application:
+    name: transaction-service
+
+  # ===================================================================
+  # DATABASE (JPA/HIBERNATE) CONFIGURATION
+  # ===================================================================
+  datasource:
+    url: jdbc:postgresql://localhost:5432/transaction_service
+    username: docker_user
+    password: docker_user
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
+
+  # ===================================================================
+  # FLYWAY DATABASE MIGRATION
+  # ===================================================================
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# ===================================================================
+# CUSTOM APPLICATION PROPERTIES
+# ===================================================================
+service:
+  api:
+    key: "my-super-secret-key-that-only-kong-and-i-know"
+  filter:
+    request-logging-filter:
+      # Enable or disable the request/response logging filter globally.
+      enabled: true
+      # Maximum payload size in bytes to log for request/response bodies.
+      # Payloads larger than this will be logged as [PAYLOAD TOO LARGE].
+      max-payload-size: 10240 # 10 KB
+    idempotency-filter:
+      enable: true
+      max-payload-size: 10240
+      race-condition-retry-delay-ms: 1000
+      concurrency-max-retries: 10
+  retry:
+    concurrency-exception:
+      # Maximum number of attempts for optimistic locking failures.
+      max-attempts: 3
+      # Initial backoff delay in milliseconds.
+      initial-delay-ms: 100
+      # Multiplier for exponential backoff.
+      delay-multiplier: 2.0
+
+# ===================================================================
+# LOGGING CONFIGURATION
+# ===================================================================
+logging:
+  level:
+    com.auzienko: INFO
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate.type.descriptor.sql: TRACE
+
+# ===================================================================
+# ACTUATOR CONFIGURATION & MICROMETER TRACING & METRICS CONFIGURATION
+# ===================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: http://localhost:0001
+
+# ===================================================================
+# SPRINGDOC OPENAPI CONFIGURATION
+# ===================================================================
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
