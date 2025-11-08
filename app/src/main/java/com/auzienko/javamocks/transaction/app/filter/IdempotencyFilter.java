@@ -1,4 +1,3 @@
-
 package com.auzienko.javamocks.transaction.app.filter;
 
 import com.auzienko.javamocks.transaction.app.config.props.IdempotencyFilterProperties;
@@ -51,7 +50,6 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             HttpMethod.HEAD.name(),
             HttpMethod.OPTIONS.name()
     );
-
 
     private final IdempotencyKeyJpaRepository idempotencyKeyRepository;
     private final TransactionTemplate transactionTemplate;
@@ -139,16 +137,16 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             }
 
             if (isProcessingResponse(cached)) {
-                log.info("Concurrent processing detected for key {} ({})", idempotencyKey, operation);
-                handleConcurrentProcessing(response, idempotencyKey, operation);
+                log.info("Request with key {} is being processed concurrently ({})", idempotencyKey, operation);
+                waitForCompletion(response, idempotencyKey, operation);
                 return;
             }
         }
 
         boolean lockAcquired = tryAcquireLock(idempotencyKey, operation);
         if (!lockAcquired) {
-            log.warn("Race condition detected for key {} ({})", idempotencyKey, operation);
-            handleRaceCondition(response, idempotencyKey, operation);
+            log.info("Lock acquisition failed for key {} ({}), waiting for completion", idempotencyKey, operation);
+            waitForCompletion(response, idempotencyKey, operation);
             return;
         }
 
@@ -159,6 +157,39 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             releaseLock(idempotencyKey);
             throw e;
         }
+    }
+
+    private void waitForCompletion(HttpServletResponse response, UUID idempotencyKey, String operation) throws IOException {
+        int maxRetries = properties.getConcurrencyMaxRetries();
+        long retryDelayMs = properties.getRaceConditionRetryDelayMs();
+
+        log.debug("Waiting for concurrent request completion: {} ({})", idempotencyKey, operation);
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                TimeUnit.MILLISECONDS.sleep(retryDelayMs);
+
+                Optional<IdempotencyKeyEntity> updated = findExistingResponse(idempotencyKey);
+                if (updated.isPresent() && isCompletedResponse(updated.get())) {
+                    log.info("Concurrent request completed for key {} ({}) after {} attempts",
+                            idempotencyKey, operation, attempt);
+                    writeCachedResponse(response, updated.get());
+                    return;
+                }
+
+                log.debug("Attempt {}/{}: Request still processing for key {} ({})",
+                        attempt, maxRetries, idempotencyKey, operation);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Interrupted while waiting for concurrent request: {} ({})", idempotencyKey, operation);
+                break;
+            }
+        }
+
+        log.warn("Timeout after {} attempts waiting for completion: {} ({})", maxRetries, idempotencyKey, operation);
+        sendError(response, HttpStatus.CONFLICT,
+                "Request is being processed by another instance. Please retry later.");
     }
 
     private boolean tryAcquireLock(UUID idempotencyKey, String operation) {
@@ -201,63 +232,6 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         } finally {
             responseWrapper.copyBodyToResponse();
         }
-    }
-
-    private void handleConcurrentProcessing(HttpServletResponse response, UUID idempotencyKey, String operation) throws IOException {
-
-        int maxRetries = properties.getConcurrencyMaxRetries();
-        long retryDelayMs = properties.getRaceConditionRetryDelayMs();
-
-        for (int attempt = 0; attempt < maxRetries; attempt++) {
-            try {
-                TimeUnit.MILLISECONDS.sleep(retryDelayMs);
-
-                Optional<IdempotencyKeyEntity> updated = findExistingResponse(idempotencyKey);
-                if (updated.isPresent() && isCompletedResponse(updated.get())) {
-                    log.info("Concurrent request completed for key {} ({}), returning result", idempotencyKey, operation);
-                    writeCachedResponse(response, updated.get());
-                    return;
-                }
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("Interrupted while waiting for concurrent request: {} ({})", idempotencyKey, operation);
-                break;
-            }
-        }
-
-        log.warn("Timeout waiting for concurrent request completion: {} ({})", idempotencyKey, operation);
-        sendError(response, HttpStatus.CONFLICT,
-                "Request is being processed by another instance. Please retry later.");
-    }
-
-    private void handleRaceCondition(HttpServletResponse response, UUID idempotencyKey, String operation) throws IOException {
-        try {
-            TimeUnit.MILLISECONDS.sleep(50);
-
-            Optional<IdempotencyKeyEntity> raceResult = findExistingResponse(idempotencyKey);
-            if (raceResult.isPresent()) {
-                IdempotencyKeyEntity entity = raceResult.get();
-
-                if (isCompletedResponse(entity)) {
-                    log.info("Race condition resolved for key {} ({}), returning cached result",
-                            idempotencyKey, operation);
-                    writeCachedResponse(response, entity);
-                    return;
-                }
-
-                if (isProcessingResponse(entity)) {
-                    handleConcurrentProcessing(response, idempotencyKey, operation);
-                    return;
-                }
-            }
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        sendError(response, HttpStatus.CONFLICT,
-                "Concurrent request detected. Please retry with a different idempotency key.");
     }
 
     private IdempotencyKeyEntity createProcessingLock(UUID key, String operation) {
